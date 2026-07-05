@@ -913,7 +913,7 @@ WH.initPlot('viz', ({ width, state }) => {
             // PH: S(t) = S0(t) ^ exp(beta)
             s_adj = Math.pow(s0_val, expBeta);
         } else {
-            // AFT: S(t) = S0(t * exp(beta))
+            // AFT: S(t) = S0(t * exp(-beta))
             s_adj = S0(t * Math.exp(-beta));
         }
         
