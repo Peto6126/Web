@@ -983,7 +983,7 @@ WH.initPlot('viz', ({ width, state }) => {
                 // AFT: Horizontal shift guides at S(t) = 0.5
                 Plot.ruleY([0.5], { strokeDasharray: "2,2", stroke: WH.getColor('--stroke-subtle') }),
                 Plot.dot([{ t: S0_LAMBDA * Math.pow(-Math.log(0.5), 1/S0_K), s: 0.5 }, 
-                          { t: (S0_LAMBDA * Math.pow(-Math.log(0.5), 1/S0_K)) / expBeta, s: 0.5 }], {
+                          { t: (S0_LAMBDA * Math.pow(-Math.log(0.5), 1/S0_K)) * expBeta, s: 0.5 }], {
                     x: "t",
                     y: "s",
                     fill: WH.getColor('--primary'),
