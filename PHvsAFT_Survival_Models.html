@@ -914,7 +914,7 @@ WH.initPlot('viz', ({ width, state }) => {
             s_adj = Math.pow(s0_val, expBeta);
         } else {
             // AFT: S(t) = S0(t * exp(beta))
-            s_adj = S0(t * expBeta);
+            s_adj = S0(t * Math.exp(-beta);
         }
         
         // Clip values to prevent drawing errors outside [0,1]
