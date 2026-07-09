@@ -83,11 +83,13 @@ function pathFromPoints(pts){
 }
 
 // static PPF
+const C0_MAX = Math.sqrt(200/0.004); // ≈223.61 — PPFが定義できる限界(c1=0になる点)
 const ppfPoints = [];
-for (let c0 = 0; c0 <= 190; c0 += 2){
+for (let c0 = 0; c0 <= C0_MAX; c0 += 1){
   const c1 = 200 - 0.004*c0*c0;
   if (c1 >= 0) ppfPoints.push({c0, c1});
 }
+ppfPoints.push({c0: C0_MAX, c1: 0}); // 端点を正確に追加
 
 // grid + axes (static)
 const gridX = document.getElementById('gridX');
@@ -146,8 +148,8 @@ function render(){
   document.getElementById('rVal').textContent = r.toFixed(2);
   document.getElementById('betaVal').textContent = beta.toFixed(1);
 
-  const C0_p = Math.min(185, (1+r)/0.008);
-  const C1_p = Math.max(10, 200 - 0.004*C0_p*C0_p);
+  const C0_p = Math.min(C0_MAX, (1+r)/0.008);
+  const C1_p = 200 - 0.004*C0_p*C0_p; // C0_pはC0_MAXでクリップ済みなので常に0以上
   const Wealth = C0_p + C1_p/(1+r);
   const alpha = beta/(1+beta);
   const C0_c = alpha * Wealth;
