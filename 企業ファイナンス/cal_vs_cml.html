@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Capital Allocation Line vs. Capital Market Line</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#33403a; --grid:#33403a1a;
+    --frontier:#8a8f98; --cml:#8a8f98; --cal:#4c8bf5; --optimal:#146c2e; --dotRf:#8a8f98;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:20px; background:var(--bg); color:var(--ink);
+    font-family:"Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  h3{margin:0; font-size:17px; font-weight:600;}
+  #viz{width:100%; max-width:720px;}
+  svg{width:100%; height:auto; display:block;}
+  .controls{width:100%; max-width:720px; display:flex; flex-direction:column; gap:14px;}
+  .row{display:flex; align-items:center; gap:12px;}
+  .row label{flex:0 0 260px; font-size:13px;}
+  .row input[type=range]{flex:1;}
+  .row .val{flex:0 0 46px; text-align:right; font-size:13px; font-variant-numeric:tabular-nums;}
+  .hud{display:flex; gap:24px; font-size:13px; flex-wrap:wrap;}
+  .hud b{font-variant-numeric:tabular-nums;}
+  .note{font-size:12px; color:#666; line-height:1.7; white-space:pre-line;}
+</style>
+</head>
+<body>
+
+<h3>Capital Allocation Line vs. Capital Market Line</h3>
+
+<div id="viz">
+  <svg viewBox="0 0 700 300" xmlns="http://www.w3.org/2000/svg">
+    <g id="gridX"></g>
+    <g id="gridY"></g>
+    <line id="axisX" stroke="var(--ink)" stroke-opacity="0.4"/>
+    <line id="axisY" stroke="var(--ink)" stroke-opacity="0.4"/>
+    <path id="frontier" fill="none" stroke="var(--frontier)" stroke-width="2" stroke-dasharray="2,2"/>
+    <line id="cml" stroke="var(--cml)" stroke-width="1.5" stroke-dasharray="4,4"/>
+    <text id="cmlLabel" fill="var(--ink)" opacity="0.65" font-size="10" text-anchor="end"></text>
+    <line id="cal" stroke="var(--cal)" stroke-width="2"/>
+    <text id="calLabel" fill="var(--cal)" font-size="11" font-weight="bold" text-anchor="end"></text>
+    <circle id="dotTangency" r="6" fill="none" stroke="var(--frontier)" stroke-width="1.5"/>
+    <circle id="dotCurrent" r="8" fill="var(--cal)"/>
+    <circle id="dotRf" r="4" fill="var(--dotRf)"/>
+    <text id="dotRfLabel" fill="var(--ink)" opacity="0.65" font-size="10"></text>
+    <text id="xLabel" fill="var(--ink)" font-size="12" text-anchor="end"></text>
+    <text id="yLabel" fill="var(--ink)" font-size="12" transform="rotate(-90)"></text>
+  </svg>
+</div>
+
+<div class="controls">
+  <div class="row">
+    <label for="slider">リスク資産ポートフォリオの選択 (Choose Risky Portfolio)</label>
+    <input type="range" id="slider" min="0" max="1" step="0.01" value="0.25">
+    <span class="val" id="sliderVal">0.25</span>
+  </div>
+  <div class="hud">
+    <div>状態: <b id="hudStatus">-</b></div>
+    <div>現在のシャープレシオ: <b id="hudSharpe">-</b></div>
+  </div>
+  <div class="note" id="detailsText"></div>
+</div>
+
+<script>
+const M = {l:70, r:20, t:20, b:45};
+const W = 700, H = 300;
+const plotW = W - M.l - M.r, plotH = H - M.t - M.b;
+const MaxX = 30, MaxY = 20;
+
+function sx(sigma){ return M.l + sigma / MaxX * plotW; }
+function sy(ret){ return M.t + plotH - ret / MaxY * plotH; }
+
+function pathFromPoints(pts, xKey, yKey){
+  return pts.map((p,i) => (i===0?'M':'L') + sx(p[xKey]).toFixed(2) + ',' + sy(p[yKey]).toFixed(2)).join('');
+}
+
+// grid + axes (static)
+const gridX = document.getElementById('gridX');
+const gridY = document.getElementById('gridY');
+for (let v=0; v<=30; v+=5){
+  const lx = document.createElementNS('http://www.w3.org/2000/svg','line');
+  lx.setAttribute('x1', sx(v)); lx.setAttribute('x2', sx(v));
+  lx.setAttribute('y1', sy(0)); lx.setAttribute('y2', sy(20));
+  lx.setAttribute('stroke','var(--grid)');
+  gridX.appendChild(lx);
+
+  const tx = document.createElementNS('http://www.w3.org/2000/svg','text');
+  tx.setAttribute('x', sx(v)); tx.setAttribute('y', sy(0)+16);
+  tx.setAttribute('font-size','10'); tx.setAttribute('text-anchor','middle');
+  tx.setAttribute('fill','var(--ink)'); tx.textContent = v;
+  gridX.appendChild(tx);
+}
+for (let v=0; v<=20; v+=5){
+  const ly = document.createElementNS('http://www.w3.org/2000/svg','line');
+  ly.setAttribute('y1', sy(v)); ly.setAttribute('y2', sy(v));
+  ly.setAttribute('x1', sx(0)); ly.setAttribute('x2', sx(30));
+  ly.setAttribute('stroke','var(--grid)');
+  gridY.appendChild(ly);
+
+  const ty = document.createElementNS('http://www.w3.org/2000/svg','text');
+  ty.setAttribute('x', sx(0)-8); ty.setAttribute('y', sy(v)+3);
+  ty.setAttribute('font-size','10'); ty.setAttribute('text-anchor','end');
+  ty.setAttribute('fill','var(--ink)'); ty.textContent = v;
+  gridY.appendChild(ty);
+}
+document.getElementById('axisX').setAttribute('x1', sx(0));
+document.getElementById('axisX').setAttribute('x2', sx(30));
+document.getElementById('axisX').setAttribute('y1', sy(0));
+document.getElementById('axisX').setAttribute('y2', sy(0));
+document.getElementById('axisY').setAttribute('y1', sy(0));
+document.getElementById('axisY').setAttribute('y2', sy(20));
+document.getElementById('axisY').setAttribute('x1', sx(0));
+document.getElementById('axisY').setAttribute('x2', sx(0));
+
+document.getElementById('xLabel').setAttribute('x', sx(30));
+document.getElementById('xLabel').setAttribute('y', sy(0)+38);
+document.getElementById('xLabel').textContent = 'リスク（標準偏差 %） →';
+
+const yLabelEl = document.getElementById('yLabel');
+yLabelEl.setAttribute('x', -(sy(0)-14));
+yLabelEl.setAttribute('y', 18);
+yLabelEl.textContent = '期待リターン (%) ↑';
+
+// ---- Core finance math ----
+const Rf = 3; // 無リスク金利 (%)
+
+// 効率的フロンティア(双曲線): sigma = sqrt(8.5*(r-9.5)^2 + 120)
+const EF_POINTS = [];
+for (let r = 4.5; r <= 18; r += 0.25){
+  const sigma = Math.sqrt(8.5 * Math.pow(r - 9.5, 2) + 120);
+  EF_POINTS.push({sigma, returnVal: r});
+}
+document.getElementById('frontier').setAttribute('d', pathFromPoints(EF_POINTS, 'sigma', 'returnVal'));
+
+// 接点ポートフォリオ(シャープレシオ最大化点)を探索
+let maxSharpe = -1, tangencyIdx = 0;
+for (let i=0; i<EF_POINTS.length; i++){
+  const p = EF_POINTS[i];
+  const sharpe = (p.returnVal - Rf) / p.sigma;
+  if (sharpe > maxSharpe){ maxSharpe = sharpe; tangencyIdx = i; }
+}
+const tangencyPoint = EF_POINTS[tangencyIdx];
+
+// CML (資本市場線): Rfから接点ポートフォリオを通る直線(固定)
+const slopeCML = (tangencyPoint.returnVal - Rf) / tangencyPoint.sigma;
+const cmlLineData = [{x:0, y:Rf}, {x:MaxX, y:Rf + slopeCML*MaxX}];
+document.getElementById('cml').setAttribute('x1', sx(0)); document.getElementById('cml').setAttribute('y1', sy(Rf));
+document.getElementById('cml').setAttribute('x2', sx(MaxX)); document.getElementById('cml').setAttribute('y2', sy(cmlLineData[1].y));
+const cmlLabel = document.getElementById('cmlLabel');
+cmlLabel.setAttribute('x', sx(MaxX)-10); cmlLabel.setAttribute('y', sy(cmlLineData[1].y)-10);
+cmlLabel.textContent = 'CML [最強のCAL]';
+
+document.getElementById('dotTangency').setAttribute('cx', sx(tangencyPoint.sigma));
+document.getElementById('dotTangency').setAttribute('cy', sy(tangencyPoint.returnVal));
+
+const dotRf = document.getElementById('dotRf');
+dotRf.setAttribute('cx', sx(0)); dotRf.setAttribute('cy', sy(Rf));
+const dotRfLabel = document.getElementById('dotRfLabel');
+dotRfLabel.setAttribute('x', sx(0)+8); dotRfLabel.setAttribute('y', sy(Rf)-4);
+dotRfLabel.textContent = `無リスク資産 Rf (${Rf}%)`;
+
+function render(){
+  const sliderVal = parseFloat(document.getElementById('slider').value);
+  document.getElementById('sliderVal').textContent = sliderVal.toFixed(2);
+
+  const idx = Math.min(Math.floor(sliderVal * (EF_POINTS.length - 1)), EF_POINTS.length - 1);
+  const current = EF_POINTS[idx];
+
+  // 最適判定: 接点ポートフォリオとの距離が十分小さいか
+  const distance = Math.abs(current.sigma - tangencyPoint.sigma) + Math.abs(current.returnVal - tangencyPoint.returnVal);
+  const optimal = distance < 0.6;
+
+  // CAL (資本配分線): Rfから現在選択中のポートフォリオを通る直線
+  const slopeCAL = (current.returnVal - Rf) / current.sigma;
+  const calEnd = {x: MaxX, y: Rf + slopeCAL*MaxX};
+
+  const cal = document.getElementById('cal');
+  cal.setAttribute('x1', sx(0)); cal.setAttribute('y1', sy(Rf));
+  cal.setAttribute('x2', sx(MaxX)); cal.setAttribute('y2', sy(calEnd.y));
+  cal.setAttribute('stroke', optimal ? 'var(--optimal)' : 'var(--cal)');
+  cal.setAttribute('stroke-width', optimal ? '3.5' : '2');
+
+  const calLabel = document.getElementById('calLabel');
+  calLabel.setAttribute('x', sx(MaxX)-10); calLabel.setAttribute('y', sy(calEnd.y)+12);
+  calLabel.setAttribute('fill', optimal ? 'var(--optimal)' : 'var(--cal)');
+  calLabel.textContent = 'CAL (資本配分線)';
+
+  const dotCurrent = document.getElementById('dotCurrent');
+  dotCurrent.setAttribute('cx', sx(current.sigma)); dotCurrent.setAttribute('cy', sy(current.returnVal));
+  dotCurrent.setAttribute('fill', optimal ? 'var(--optimal)' : 'var(--cal)');
+
+  document.getElementById('hudStatus').textContent = optimal ? '最適 (Optimal)' : '非効率 (Inefficient)';
+  document.getElementById('hudSharpe').textContent = ((current.returnVal - Rf) / current.sigma).toFixed(2);
+
+  const explanation = optimal
+    ? '現在の状態: CALがCMLに一致しました！市場ポートフォリオを選んだとき、資本配分線(CAL)は特別な「資本市場線(CML)」になります。'
+    : '現在の状態: 通常のCAL。このリスク資産の組み合わせは、市場全体で最適化された接点ではないため、CMLより効率(傾き)が劣ります。';
+
+  document.getElementById('detailsText').textContent = explanation +
+    '\n\n■ 期待リターンとリスクの関係' +
+    '\n- CAL(資本配分線): 任意の個別リスク資産(またはそのポートフォリオ)と無リスク資産を結ぶラインです。' +
+    '\n- CML(資本市場線): 効率的フロンティアに接する「接点ポートフォリオ」と無リスク資産を結ぶラインで、あらゆるCALの中で傾き(運用効率)が最大(最強)となる直線です。';
+}
+
+document.getElementById('slider').addEventListener('input', render);
+render();
+</script>
+</body>
+</html>
