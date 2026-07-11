@@ -3,45 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>トービンの分離定理 シミュレーター</title>
+    <title>トービンの分離定理</title>
     <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: auto;
+        }
         body {
             font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
             background-color: #f4f7f6;
             color: #333;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
         }
+        *{ box-sizing: border-box; }
         .container {
             background-color: #fff;
             border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            padding: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            padding: 20px;
             max-width: 800px;
             width: 100%;
+            margin: 0 auto;
         }
         h1 {
-            font-size: 22px;
+            font-size: 20px;
             text-align: center;
             color: #2c3e50;
-            margin-bottom: 20px;
+            margin: 0 0 18px 0;
         }
         .controls {
             background-color: #ecf0f1;
-            padding: 20px;
+            padding: 16px;
             border-radius: 8px;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
         .control-group {
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
         }
         .slider-container {
-            flex-grow: 1;
-            margin: 0 20px;
+            flex: 1 1 160px;
+            margin: 0 12px;
         }
         input[type=range] {
             width: 100%;
@@ -50,34 +57,44 @@
         .info-panel {
             display: flex;
             justify-content: space-between;
+            gap: 10px;
             margin-top: 15px;
-            font-size: 14px;
+            font-size: 13px;
+            flex-wrap: wrap;
         }
         .info-box {
             background: #fff;
             padding: 10px;
             border-radius: 5px;
             border: 1px solid #bdc3c7;
-            width: 48%;
+            flex: 1 1 45%;
+            min-width: 180px;
         }
         .info-box span {
             font-weight: bold;
-            font-size: 16px;
+            font-size: 15px;
             color: #2980b9;
+        }
+        .canvas-wrap{
+            width: 100%;
+            max-width: 700px;
+            margin: 0 auto;
         }
         canvas {
             display: block;
-            margin: 0 auto;
+            width: 100%;
+            height: auto;
             background: #fafafa;
             border: 1px solid #ecf0f1;
             border-radius: 8px;
         }
         .description {
-            margin-top: 20px;
-            font-size: 14px;
+            margin-top: 18px;
+            font-size: 13px;
             line-height: 1.6;
             color: #555;
         }
+        .description p{ margin: 8px 0; }
         .highlight {
             color: #e74c3c;
             font-weight: bold;
@@ -88,7 +105,7 @@
 
 <div class="container">
     <h1>トービンの分離定理 シミュレーター</h1>
-    
+
     <div class="controls">
         <div class="control-group">
             <label for="riskAversion"><strong>あなたのリスク回避度 (A):</strong></label>
@@ -111,7 +128,9 @@
         </div>
     </div>
 
-    <canvas id="chartCanvas" width="700" height="450"></canvas>
+    <div class="canvas-wrap">
+        <canvas id="chartCanvas" width="700" height="450"></canvas>
+    </div>
 
     <div class="description">
         <p><strong>Step 1 (客観的最適化):</strong> グラフ上の青い点 <strong style="color:#2980b9">M (市場ポートフォリオ)</strong> は、市場データから数学的に計算された「全投資家にとって最強のリスク資産セット」です。あなたの好みに関係なく、この位置は固定されています。</p>
@@ -122,22 +141,42 @@
 <script>
     const canvas = document.getElementById('chartCanvas');
     const ctx = canvas.getContext('2d');
-    
+
     // パラメータ設定
     const rf = 0.02; // 安全資産利子率 (2%)
     const mu_m = 0.08; // 市場ポートフォリオ期待リターン (8%)
     const sigma_m = 0.15; // 市場ポートフォリオ標準偏差 (15%)
     const slopeCML = (mu_m - rf) / sigma_m; // CMLの傾き (シャープ・レシオ = 0.4)
 
-    // 描画用の座標マッピング
-    const width = canvas.width;
-    const height = canvas.height;
+    // 描画用の座標マッピング(CSS上のピクセル基準。DPRはctx.scaleで吸収)
+    let width = 700;
+    let height = 450;
     const margin = 50;
     const xMax = 0.30; // X軸最大値 (30%)
     const yMax = 0.14; // Y軸最大値 (14%)
 
     function mapX(x) { return margin + (x / xMax) * (width - margin * 2); }
     function mapY(y) { return height - margin - (y / yMax) * (height - margin * 2); }
+
+    // レスポンシブ対応: コンテナ幅に合わせてcanvasの実解像度をセットする
+    function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        const cssWidth = canvas.parentElement.clientWidth;
+        const cssHeight = cssWidth * (450 / 700); // 元のアスペクト比(700:450)を維持
+
+        width = cssWidth;
+        height = cssHeight;
+
+        canvas.style.width = cssWidth + 'px';
+        canvas.style.height = cssHeight + 'px';
+        canvas.width = Math.round(cssWidth * dpr);
+        canvas.height = Math.round(cssHeight * dpr);
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+
+        draw();
+    }
 
     function draw() {
         const A = parseFloat(document.getElementById('riskAversion').value);
@@ -237,7 +276,7 @@
         document.getElementById('aVal').innerText = A.toFixed(1);
         document.getElementById('optRisk').innerText = (x_star * 100).toFixed(1);
         document.getElementById('optReturn').innerText = (y_star * 100).toFixed(1);
-        
+
         let weight_m = (x_star / sigma_m) * 100;
         let weight_rf = 100 - weight_m;
         document.getElementById('weightM').innerText = weight_m.toFixed(1);
@@ -258,9 +297,10 @@
 
     // イベントリスナー
     document.getElementById('riskAversion').addEventListener('input', draw);
+    window.addEventListener('resize', resizeCanvas);
 
-    // 初期描画
-    draw();
+    // 初期描画(レスポンシブ対応込み)
+    resizeCanvas();
 </script>
 
 </body>
