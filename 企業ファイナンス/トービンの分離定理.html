@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>トービンの分離定理 シミュレーター</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            padding: 30px;
+            max-width: 800px;
+            width: 100%;
+        }
+        h1 {
+            font-size: 22px;
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .controls {
+            background-color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .slider-container {
+            flex-grow: 1;
+            margin: 0 20px;
+        }
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+        }
+        .info-panel {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        .info-box {
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #bdc3c7;
+            width: 48%;
+        }
+        .info-box span {
+            font-weight: bold;
+            font-size: 16px;
+            color: #2980b9;
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            background: #fafafa;
+            border: 1px solid #ecf0f1;
+            border-radius: 8px;
+        }
+        .description {
+            margin-top: 20px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #555;
+        }
+        .highlight {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>トービンの分離定理 シミュレーター</h1>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label for="riskAversion"><strong>あなたのリスク回避度 (A):</strong></label>
+            <div class="slider-container">
+                <input type="range" id="riskAversion" min="1.5" max="10" step="0.1" value="4">
+            </div>
+            <span id="aVal">4.0</span>
+        </div>
+        <div class="info-panel">
+            <div class="info-box">
+                <div>最適ポートフォリオ <strong style="color:#e74c3c">C*</strong></div>
+                <div>リスク (標準偏差): <span id="optRisk">10.0</span>%</div>
+                <div>期待リターン: <span id="optReturn">6.0</span>%</div>
+            </div>
+            <div class="info-box">
+                <div>資金の配分比率 (Step 2)</div>
+                <div>市場ポートフォリオ M: <span id="weightM">66.7</span>%</div>
+                <div>安全資産 (預金など): <span id="weightRf">33.3</span>%</div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="chartCanvas" width="700" height="450"></canvas>
+
+    <div class="description">
+        <p><strong>Step 1 (客観的最適化):</strong> グラフ上の青い点 <strong style="color:#2980b9">M (市場ポートフォリオ)</strong> は、市場データから数学的に計算された「全投資家にとって最強のリスク資産セット」です。あなたの好みに関係なく、この位置は固定されています。</p>
+        <p><strong>Step 2 (主観的配分):</strong> スライダーを動かして「リスク回避度」を変えてみてください。あなたが慎重派（数値が大きい）なら左下の安全な位置へ、積極派（数値が小さい）なら右上へと、最適点 <strong class="highlight">C*</strong> が <strong style="color:#27ae60">資本市場線 (CML)</strong> 上を移動します。</p>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('chartCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // パラメータ設定
+    const rf = 0.02; // 安全資産利子率 (2%)
+    const mu_m = 0.08; // 市場ポートフォリオ期待リターン (8%)
+    const sigma_m = 0.15; // 市場ポートフォリオ標準偏差 (15%)
+    const slopeCML = (mu_m - rf) / sigma_m; // CMLの傾き (シャープ・レシオ = 0.4)
+
+    // 描画用の座標マッピング
+    const width = canvas.width;
+    const height = canvas.height;
+    const margin = 50;
+    const xMax = 0.30; // X軸最大値 (30%)
+    const yMax = 0.14; // Y軸最大値 (14%)
+
+    function mapX(x) { return margin + (x / xMax) * (width - margin * 2); }
+    function mapY(y) { return height - margin - (y / yMax) * (height - margin * 2); }
+
+    function draw() {
+        const A = parseFloat(document.getElementById('riskAversion').value);
+        ctx.clearRect(0, 0, width, height);
+
+        // --- 軸の描画 ---
+        ctx.strokeStyle = '#aaa';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(margin, margin);
+        ctx.lineTo(margin, height - margin);
+        ctx.lineTo(width - margin, height - margin);
+        ctx.stroke();
+
+        ctx.fillStyle = '#555';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('リスク (標準偏差 σ)', width / 2, height - 15);
+        ctx.save();
+        ctx.translate(15, height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText('期待リターン (μ)', 0, 0);
+        ctx.restore();
+
+        // 軸の目盛り
+        for(let i=0; i<=30; i+=5) {
+            let x = mapX(i/100);
+            ctx.fillText(i + '%', x, height - margin + 15);
+        }
+        for(let i=0; i<=14; i+=2) {
+            let y = mapY(i/100);
+            ctx.textAlign = 'right';
+            ctx.fillText(i + '%', margin - 10, y + 4);
+        }
+
+        // --- 効率的フロンティア (曲線のモック描画) ---
+        // 接点M(0.15, 0.08)で傾き0.4になるような二次関数: σ(μ) = 25(μ - 0.03)^2 + 0.0875
+        ctx.strokeStyle = '#7f8c8d';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        for(let mu = 0.03; mu <= 0.14; mu += 0.002) {
+            let sigma = 25 * Math.pow(mu - 0.03, 2) + 0.0875;
+            if(sigma > xMax) continue;
+            let px = mapX(sigma);
+            let py = mapY(mu);
+            if(mu === 0.03) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.fillStyle = '#7f8c8d';
+        ctx.textAlign = 'left';
+        ctx.fillText('効率的フロンティア', mapX(0.20), mapY(0.06));
+
+        // --- 資本市場線 (CML) ---
+        ctx.strokeStyle = '#27ae60';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(mapX(0), mapY(rf));
+        ctx.lineTo(mapX(xMax), mapY(rf + slopeCML * xMax));
+        ctx.stroke();
+        ctx.fillStyle = '#27ae60';
+        ctx.fillText('CML (資本市場線)', mapX(0.22), mapY(0.115));
+
+        // --- 効用関数 (無差別曲線) の計算と描画 ---
+        // 最適点 (C*) の計算
+        let x_star = slopeCML / A;
+        let y_star = rf + slopeCML * x_star;
+        let U_star = y_star - 0.5 * A * Math.pow(x_star, 2);
+
+        ctx.strokeStyle = '#e67e22';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        for(let x = 0; x <= xMax; x += 0.005) {
+            let y = U_star + 0.5 * A * Math.pow(x, 2);
+            if(y > yMax) continue;
+            let px = mapX(x);
+            let py = mapY(y);
+            if(x === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // --- ポイントの描画 ---
+        // 安全資産 (Rf)
+        drawPoint(0, rf, '#34495e', 'rf (2%)');
+
+        // 市場ポートフォリオ (M)
+        drawPoint(sigma_m, mu_m, '#2980b9', 'M (市場ポートフォリオ)');
+
+        // 最適ポートフォリオ (C*)
+        drawPoint(x_star, y_star, '#e74c3c', 'C* (最適点)');
+
+        // UIテキストの更新
+        document.getElementById('aVal').innerText = A.toFixed(1);
+        document.getElementById('optRisk').innerText = (x_star * 100).toFixed(1);
+        document.getElementById('optReturn').innerText = (y_star * 100).toFixed(1);
+        
+        let weight_m = (x_star / sigma_m) * 100;
+        let weight_rf = 100 - weight_m;
+        document.getElementById('weightM').innerText = weight_m.toFixed(1);
+        document.getElementById('weightRf').innerText = weight_rf.toFixed(1);
+    }
+
+    function drawPoint(x, y, color, label) {
+        let px = mapX(x);
+        let py = mapY(y);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'left';
+        ctx.fillText(label, px + 10, py + 4);
+    }
+
+    // イベントリスナー
+    document.getElementById('riskAversion').addEventListener('input', draw);
+
+    // 初期描画
+    draw();
+</script>
+
+</body>
+</html>
