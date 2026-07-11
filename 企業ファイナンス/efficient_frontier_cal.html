@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Efficient Frontier vs. Capital Allocation Line</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#33403a; --grid:#33403a1a;
+    --frontier:#8a8f98; --cal:#4c8bf5; --rf:#4c8bf5; --tangency:#146c2e;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:20px; background:var(--bg); color:var(--ink);
+    font-family:"Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  h3{margin:0; font-size:17px; font-weight:600;}
+  #viz{width:100%; max-width:720px;}
+  svg{width:100%; height:auto; display:block;}
+  .controls{width:100%; max-width:720px; display:flex; flex-direction:column; gap:14px;}
+  .row{display:flex; align-items:center; gap:12px;}
+  .row label{flex:0 0 220px; font-size:13px;}
+  .row input[type=range]{flex:1;}
+  .row .val{flex:0 0 46px; text-align:right; font-size:13px; font-variant-numeric:tabular-nums;}
+  .switch{position:relative; width:44px; height:24px; flex:0 0 44px;}
+  .switch input{opacity:0; width:0; height:0;}
+  .slider-toggle{position:absolute; cursor:pointer; inset:0; background:#ccc; border-radius:999px; transition:.2s;}
+  .slider-toggle:before{
+    content:""; position:absolute; height:18px; width:18px; left:3px; top:3px;
+    background:white; border-radius:50%; transition:.2s;
+  }
+  input:checked + .slider-toggle{background:var(--cal);}
+  input:checked + .slider-toggle:before{transform:translateX(20px);}
+  .hud{display:flex; gap:24px; font-size:13px; flex-wrap:wrap;}
+  .hud b{font-variant-numeric:tabular-nums;}
+  .note{font-size:12px; color:#666; line-height:1.6;}
+</style>
+</head>
+<body>
+
+<h3>Efficient Frontier vs. Capital Allocation Line</h3>
+
+<div id="viz">
+  <svg viewBox="0 0 700 350" xmlns="http://www.w3.org/2000/svg">
+    <g id="gridX"></g>
+    <g id="gridY"></g>
+    <line id="axisX" stroke="var(--ink)" stroke-opacity="0.4"/>
+    <line id="axisY" stroke="var(--ink)" stroke-opacity="0.4"/>
+    <path id="frontier" fill="none" stroke="var(--frontier)" stroke-width="3"/>
+    <text id="frontierLabel" fill="var(--frontier)" font-size="12"></text>
+    <line id="cal" stroke="var(--cal)" stroke-width="3"/>
+    <text id="calLabel" fill="var(--cal)" font-size="12" font-weight="bold"></text>
+    <circle id="dotRf" r="5" fill="var(--rf)"/>
+    <text id="dotRfLabel" fill="var(--rf)" font-size="12"></text>
+    <circle id="dotTangency" r="7" fill="var(--tangency)" stroke="#fff" stroke-width="2"/>
+    <text id="dotTangencyLabel" fill="var(--tangency)" font-size="12" font-weight="bold"></text>
+    <text id="noteText" fill="#888" font-size="12" text-anchor="middle"></text>
+    <text id="xLabel" fill="var(--ink)" font-size="12" text-anchor="end"></text>
+    <text id="yLabel" fill="var(--ink)" font-size="12" transform="rotate(-90)"></text>
+  </svg>
+</div>
+
+<div class="controls">
+  <div class="row">
+    <label for="showRf">安全資産の導入 (Risk-Free Asset)</label>
+    <label class="switch">
+      <input type="checkbox" id="showRf">
+      <span class="slider-toggle"></span>
+    </label>
+  </div>
+  <div class="row">
+    <label for="rf">無リスク金利 (r_f) (%)</label>
+    <input type="range" id="rf" min="0" max="5" step="0.5" value="2">
+    <span class="val" id="rfVal">2.0</span>
+  </div>
+  <div class="hud">
+    <div>安全資産: <b id="hudRf">なし (No)</b></div>
+    <div>無リスク金利: <b id="hudRfVal">2.0%</b></div>
+    <div>接点 Sharpe: <b id="hudSharpe">N/A</b></div>
+  </div>
+  <div class="note" id="detailsText"></div>
+</div>
+
+<script>
+const M = {l:70, r:20, t:20, b:45};
+const W = 700, H = 350;
+const plotW = W - M.l - M.r, plotH = H - M.t - M.b;
+const domainX = [0, 30], domainY = [0, 20];
+
+function sx(risk){ return M.l + (risk - domainX[0]) / (domainX[1]-domainX[0]) * plotW; }
+function sy(ret){ return M.t + plotH - (ret - domainY[0]) / (domainY[1]-domainY[0]) * plotH; }
+
+function pathFromPoints(pts){
+  return pts.map((p,i) => (i===0?'M':'L') + sx(p.risk).toFixed(2) + ',' + sy(p.return).toFixed(2)).join('');
+}
+
+// grid + axes (static)
+const gridX = document.getElementById('gridX');
+const gridY = document.getElementById('gridY');
+for (let v=0; v<=30; v+=5){
+  const lx = document.createElementNS('http://www.w3.org/2000/svg','line');
+  lx.setAttribute('x1', sx(v)); lx.setAttribute('x2', sx(v));
+  lx.setAttribute('y1', sy(0)); lx.setAttribute('y2', sy(20));
+  lx.setAttribute('stroke','var(--grid)');
+  gridX.appendChild(lx);
+
+  const tx = document.createElementNS('http://www.w3.org/2000/svg','text');
+  tx.setAttribute('x', sx(v)); tx.setAttribute('y', sy(0)+16);
+  tx.setAttribute('font-size','10'); tx.setAttribute('text-anchor','middle');
+  tx.setAttribute('fill','var(--ink)'); tx.textContent = v;
+  gridX.appendChild(tx);
+}
+for (let v=0; v<=20; v+=2){
+  const ly = document.createElementNS('http://www.w3.org/2000/svg','line');
+  ly.setAttribute('y1', sy(v)); ly.setAttribute('y2', sy(v));
+  ly.setAttribute('x1', sx(0)); ly.setAttribute('x2', sx(30));
+  ly.setAttribute('stroke','var(--grid)');
+  gridY.appendChild(ly);
+
+  const ty = document.createElementNS('http://www.w3.org/2000/svg','text');
+  ty.setAttribute('x', sx(0)-8); ty.setAttribute('y', sy(v)+3);
+  ty.setAttribute('font-size','10'); ty.setAttribute('text-anchor','end');
+  ty.setAttribute('fill','var(--ink)'); ty.textContent = v;
+  gridY.appendChild(ty);
+}
+document.getElementById('axisX').setAttribute('x1', sx(0));
+document.getElementById('axisX').setAttribute('x2', sx(30));
+document.getElementById('axisX').setAttribute('y1', sy(0));
+document.getElementById('axisX').setAttribute('y2', sy(0));
+document.getElementById('axisY').setAttribute('y1', sy(0));
+document.getElementById('axisY').setAttribute('y2', sy(20));
+document.getElementById('axisY').setAttribute('x1', sx(0));
+document.getElementById('axisY').setAttribute('x2', sx(0));
+
+document.getElementById('xLabel').setAttribute('x', sx(30));
+document.getElementById('xLabel').setAttribute('y', sy(0)+38);
+document.getElementById('xLabel').textContent = 'リスク（標準偏差 σ %） →';
+
+const yLabelEl = document.getElementById('yLabel');
+yLabelEl.setAttribute('x', -(sy(0)-14));
+yLabelEl.setAttribute('y', 18);
+yLabelEl.textContent = '期待リターン (%) ↑';
+
+// 効率的フロンティア(双曲線): y = y0 + b*sqrt(1 + ((x-x0)/a)^2)
+const x0 = 10, y0 = 6, aParam = 4, bParam = 1.2;
+const frontierPoints = [];
+for (let x = 10; x <= 30; x += 0.2){
+  const term = (x - x0) / aParam;
+  const y = y0 + bParam * Math.sqrt(1 + term*term);
+  frontierPoints.push({risk: x, return: y});
+}
+document.getElementById('frontier').setAttribute('d', pathFromPoints(frontierPoints));
+const frontierLabel = document.getElementById('frontierLabel');
+frontierLabel.setAttribute('x', sx(24)+5); frontierLabel.setAttribute('y', sy(12.5));
+frontierLabel.textContent = '効率的フロンティア';
+
+// 接点ポートフォリオを探索: シャープレシオ (return-rf)/risk を最大化する点
+function calculateTangency(rf){
+  let maxSlope = -Infinity, bestPoint = null;
+  for (const p of frontierPoints){
+    const slope = (p.return - rf) / p.risk;
+    if (slope > maxSlope){ maxSlope = slope; bestPoint = p; }
+  }
+  return {point: bestPoint, slope: maxSlope};
+}
+
+function render(){
+  const rf = parseFloat(document.getElementById('rf').value);
+  const isRf = document.getElementById('showRf').checked;
+  document.getElementById('rfVal').textContent = rf.toFixed(1);
+
+  const {point, slope} = calculateTangency(rf);
+
+  const cal = document.getElementById('cal');
+  const calLabel = document.getElementById('calLabel');
+  const dotRf = document.getElementById('dotRf');
+  const dotRfLabel = document.getElementById('dotRfLabel');
+  const dotTangency = document.getElementById('dotTangency');
+  const dotTangencyLabel = document.getElementById('dotTangencyLabel');
+  const noteText = document.getElementById('noteText');
+
+  if (isRf && point){
+    // CAL: (0, rf) から (30, rf+slope*30) まで
+    cal.setAttribute('x1', sx(0)); cal.setAttribute('y1', sy(rf));
+    cal.setAttribute('x2', sx(30)); cal.setAttribute('y2', sy(rf + slope*30));
+    cal.style.display = '';
+
+    const calLabelReturn = (rf + slope*30) * 0.8 || 15;
+    calLabel.setAttribute('x', sx(22)); calLabel.setAttribute('y', sy(calLabelReturn));
+    calLabel.textContent = '資金配分線 (CAL)';
+    calLabel.style.display = '';
+
+    dotRf.setAttribute('cx', sx(0)); dotRf.setAttribute('cy', sy(rf));
+    dotRf.style.display = '';
+    dotRfLabel.setAttribute('x', sx(0.8)); dotRfLabel.setAttribute('y', sy(rf)-8);
+    dotRfLabel.textContent = `無リスク金利 (rf: ${rf}%)`;
+    dotRfLabel.style.display = '';
+
+    dotTangency.setAttribute('cx', sx(point.risk)); dotTangency.setAttribute('cy', sy(point.return));
+    dotTangency.style.display = '';
+    dotTangencyLabel.setAttribute('x', sx(point.risk)+12); dotTangencyLabel.setAttribute('y', sy(point.return)-5);
+    dotTangencyLabel.textContent = '接点ポートフォリオ';
+    dotTangencyLabel.style.display = '';
+
+    noteText.style.display = 'none';
+  } else {
+    cal.style.display = 'none';
+    calLabel.style.display = 'none';
+    dotRf.style.display = 'none';
+    dotRfLabel.style.display = 'none';
+    dotTangency.style.display = 'none';
+    dotTangencyLabel.style.display = 'none';
+
+    noteText.setAttribute('x', sx(15)); noteText.setAttribute('y', sy(4));
+    noteText.textContent = '※ 投資家は曲線上のいずれかのリスク・リターンを選択します';
+    noteText.style.display = '';
+  }
+
+  // HUD
+  document.getElementById('hudRf').textContent = isRf ? 'あり (Yes)' : 'なし (No)';
+  document.getElementById('hudRfVal').textContent = rf.toFixed(1) + '%';
+  document.getElementById('hudSharpe').textContent = (isRf && point) ? ((point.return - rf)/point.risk).toFixed(2) : 'N/A';
+
+  document.getElementById('detailsText').textContent = isRf
+    ? '安全資産(無リスク資産)を導入すると、接点ポートフォリオ(Tangency Portfolio)と無リスク資産を結ぶ「資金配分線(CAL)」上のポートフォリオが最も効率的になります。CALは効率的フロンティアより高い傾きを持ち、同じリスクに対して高い期待リターンを提供します。'
+    : '安全資産がない場合、投資家は「効率的フロンティア(曲線)」上のいずれかのポートフォリオを選択せざるを得ません。左端の頂点は「最小分散ポートフォリオ」を表します。';
+}
+
+document.getElementById('showRf').addEventListener('change', render);
+document.getElementById('rf').addEventListener('input', render);
+render();
+</script>
+</body>
+</html>
