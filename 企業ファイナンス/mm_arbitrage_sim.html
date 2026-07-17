@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Modigliani-Miller Arbitrage Sim</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#33403a; --grid:#33403a1a;
+    --c1:#1558d6; --c2:#046e00; --c3:#eaa937;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:20px; background:var(--bg); color:var(--ink);
+    font-family:"Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:16px;
+  }
+  h3{margin:0; font-size:17px; font-weight:600;}
+  .status{font-size:14px; font-weight:600; padding:8px 14px; border-radius:8px; background:#f4f4f4;}
+  #viz{width:100%; max-width:720px; display:flex; flex-direction:column; gap:18px;}
+  .chartTitle{font-size:12px; color:#666; margin-bottom:4px;}
+  svg{width:100%; height:auto; display:block;}
+  .legend{display:flex; gap:16px; font-size:11px; flex-wrap:wrap; margin-top:4px;}
+  .legend span{display:inline-flex; align-items:center; gap:5px;}
+  .swatch{width:10px; height:10px; border-radius:2px;}
+  .controls{width:100%; max-width:720px; display:flex; flex-direction:column; gap:14px;}
+  .row{display:flex; align-items:center; gap:12px;}
+  .row label{flex:0 0 200px; font-size:13px;}
+  .row input[type=range]{flex:1;}
+  .row .val{flex:0 0 60px; text-align:right; font-size:13px; font-variant-numeric:tabular-nums;}
+  .note{font-size:12px; color:#666; line-height:1.7; white-space:pre-line;}
+</style>
+</head>
+<body>
+
+<h3>Modigliani-Miller Arbitrage Sim</h3>
+<div class="status" id="statusBox">-</div>
+
+<div id="viz">
+  <div>
+    <div class="chartTitle">初期取得コスト (α × V) →</div>
+    <svg id="chartCost" viewBox="0 0 620 130" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--c1);"></span>企業U (Unleveraged)</span>
+      <span><span class="swatch" style="background:var(--c2);"></span>企業L (Leveraged)</span>
+    </div>
+  </div>
+  <div>
+    <div class="chartTitle">将来のペイオフ →</div>
+    <svg id="chartPayoff" viewBox="0 0 620 130" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--c1);"></span>純利益 (α × X)</span>
+      <span><span class="swatch" style="background:var(--c3);"></span>負債利息 (α × r × D_L)</span>
+      <span><span class="swatch" style="background:var(--c2);"></span>株式配当 (α × (X − r × D_L))</span>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="row">
+    <label for="V_U">企業Uの価値 (V_U)</label>
+    <input type="range" id="V_U" min="5000" max="15000" step="100" value="10000">
+    <span class="val" id="V_UVal">10000</span>
+  </div>
+  <div class="row">
+    <label for="V_L">企業Lの価値 (V_L)</label>
+    <input type="range" id="V_L" min="5000" max="15000" step="100" value="12000">
+    <span class="val" id="V_LVal">12000</span>
+  </div>
+  <div class="row">
+    <label for="D_L">企業Lの負債 (D_L)</label>
+    <input type="range" id="D_L" min="0" max="10000" step="100" value="5000">
+    <span class="val" id="D_LVal">5000</span>
+  </div>
+  <div class="note" id="detailsText"></div>
+</div>
+
+<script>
+// 内部固定パラメータ(元のウィジェットの internal_state に相当)
+const alpha = 0.1;
+const X = 1000;
+const r = 0.05;
+
+const M = {l:140, r:20, t:8, b:34};
+const barW = 620, barH = 130;
+const plotW = barW - M.l - M.r;
+
+function bx(val, domainMax){ return M.l + (val/domainMax) * plotW; }
+
+function drawBarChart(svgEl, rows, domainMax, barsPerRow){
+  // rows: array of {y: rowIndex(0/1), segments: [{value, color}], totalLabel}
+  svgEl.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const rowH = (barH - M.t - M.b) / barsPerRow;
+  const barThickness = rowH * 0.55;
+
+  // x axis ticks
+  const stepCount = 5;
+  for (let i=0; i<=stepCount; i++){
+    const v = domainMax * i/stepCount;
+    const x = bx(v, domainMax);
+    const line = document.createElementNS(ns,'line');
+    line.setAttribute('x1', x); line.setAttribute('x2', x);
+    line.setAttribute('y1', M.t); line.setAttribute('y2', barH-M.b);
+    line.setAttribute('stroke', 'var(--grid)');
+    svgEl.appendChild(line);
+
+    const text = document.createElementNS(ns,'text');
+    text.setAttribute('x', x); text.setAttribute('y', barH-M.b+14);
+    text.setAttribute('font-size','9'); text.setAttribute('text-anchor','middle');
+    text.setAttribute('fill','var(--ink)'); text.textContent = Math.round(v);
+    svgEl.appendChild(text);
+  }
+
+  // zero rule
+  const rule = document.createElementNS(ns,'line');
+  rule.setAttribute('x1', bx(0,domainMax)); rule.setAttribute('x2', bx(0,domainMax));
+  rule.setAttribute('y1', M.t); rule.setAttribute('y2', barH-M.b);
+  rule.setAttribute('stroke','var(--ink)'); rule.setAttribute('stroke-opacity','0.5');
+  svgEl.appendChild(rule);
+
+  rows.forEach((row, i) => {
+    const yCenter = M.t + rowH*i + rowH/2;
+    const yTop = yCenter - barThickness/2;
+
+    // row label
+    const label = document.createElementNS(ns,'text');
+    label.setAttribute('x', M.l-10); label.setAttribute('y', yCenter+4);
+    label.setAttribute('font-size','11'); label.setAttribute('text-anchor','end');
+    label.setAttribute('fill','var(--ink)'); label.textContent = row.label;
+    svgEl.appendChild(label);
+
+    let cursor = 0;
+    row.segments.forEach(seg => {
+      const x1 = bx(cursor, domainMax);
+      const x2 = bx(cursor+seg.value, domainMax);
+      const rect = document.createElementNS(ns,'rect');
+      rect.setAttribute('x', x1); rect.setAttribute('y', yTop);
+      rect.setAttribute('width', Math.max(0, x2-x1)); rect.setAttribute('height', barThickness);
+      rect.setAttribute('fill', seg.color);
+      svgEl.appendChild(rect);
+      cursor += seg.value;
+    });
+
+    const totalLabel = document.createElementNS(ns,'text');
+    totalLabel.setAttribute('x', bx(cursor, domainMax)+6); totalLabel.setAttribute('y', yCenter+4);
+    totalLabel.setAttribute('font-size','10'); totalLabel.setAttribute('text-anchor','start');
+    totalLabel.setAttribute('fill','var(--ink)');
+    totalLabel.textContent = row.totalLabel !== undefined ? row.totalLabel : cursor.toFixed(0);
+    svgEl.appendChild(totalLabel);
+  });
+}
+
+function render(){
+  const V_U = parseFloat(document.getElementById('V_U').value);
+  const V_L = parseFloat(document.getElementById('V_L').value);
+  const D_L = parseFloat(document.getElementById('D_L').value);
+  document.getElementById('V_UVal').textContent = V_U;
+  document.getElementById('V_LVal').textContent = V_L;
+  document.getElementById('D_LVal').textContent = D_L;
+
+  // --- Chart 1: 初期取得コスト ---
+  const costU = alpha * V_U;
+  const costL = alpha * V_L;
+  drawBarChart(document.getElementById('chartCost'), [
+    { label:'企業U (Unleveraged)', segments:[{value:costU, color:'var(--c1)'}] },
+    { label:'企業L (Leveraged)', segments:[{value:costL, color:'var(--c2)'}] }
+  ], 1600, 2);
+
+  // --- Chart 2: 将来のペイオフ ---
+  const debtPayoff = alpha * r * D_L;
+  const equityPayoff = alpha * (X - r * D_L);
+  const totalPayoff = alpha * X;
+  drawBarChart(document.getElementById('chartPayoff'), [
+    { label:'企業U', segments:[{value:totalPayoff, color:'var(--c1)'}], totalLabel: totalPayoff.toFixed(0) },
+    { label:'企業L', segments:[
+        {value:debtPayoff, color:'var(--c3)'},
+        {value:equityPayoff, color:'var(--c2)'}
+      ], totalLabel: (debtPayoff+equityPayoff).toFixed(0) }
+  ], 120, 2);
+
+  // --- ステータス & 説明文 ---
+  const isArbitrage = Math.abs(V_U - V_L) > 1;
+  const status = isArbitrage ? '🚨 裁定取引のチャンス！' : '✅ 均衡状態 (MM定理成立)';
+  const rationale = isArbitrage
+    ? '将来のペイオフが同じなのに、現在の取得コストが異なります。安い方を買い、高い方を売ることで無リスク利益が得られます。'
+    : '企業Uと企業Lの価値が一致しており、裁定機会は存在しません。';
+
+  document.getElementById('statusBox').textContent = status;
+  document.getElementById('detailsText').textContent =
+    `${status}\n\n${rationale}\n\nV_U = ${V_U}, V_L = ${V_L}\n負債 D_L = ${D_L}\n投資比率 α = ${alpha}`;
+}
+
+['V_U','V_L','D_L'].forEach(id => {
+  document.getElementById(id).addEventListener('input', render);
+});
+render();
+</script>
+</body>
+</html>
