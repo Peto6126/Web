@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Leverage and Beta (Hamada Equation)</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#33403a; --grid:#33403a1a;
+    --line:#1558d6; --ub:#c0151d; --current:#111;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:20px; background:var(--bg); color:var(--ink);
+    font-family:"Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  h3{margin:0; font-size:16px; font-weight:600; text-align:center;}
+  #viz{width:100%; max-width:760px;}
+  svg{width:100%; height:auto; display:block;}
+  .legend{display:flex; gap:18px; font-size:12px; flex-wrap:wrap; margin-top:6px; justify-content:center;}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .swatchLine{width:16px; height:0; border-top:3px solid;}
+  .controls{width:100%; max-width:760px; display:flex; flex-direction:column; gap:14px;}
+  .row{display:flex; align-items:center; gap:12px;}
+  .row label{flex:0 0 220px; font-size:13px;}
+  .row input[type=range]{flex:1;}
+  .row .val{flex:0 0 70px; text-align:right; font-size:13px; font-variant-numeric:tabular-nums;}
+  .hud{display:flex; gap:20px; font-size:13px; flex-wrap:wrap;}
+  .hud b{font-variant-numeric:tabular-nums;}
+  .resultBox{width:100%; max-width:760px; font-size:13px; background:#f4f4f4; border-radius:8px; padding:12px 16px; line-height:1.8;}
+</style>
+</head>
+<body>
+
+<h3>Leverage and Beta（Hamada公式：税金なしモデル）</h3>
+
+<div id="viz">
+  <svg id="chart" viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div class="legend">
+    <span><span class="swatchLine" style="border-color:var(--line);"></span>Predicted Beta (β_L)</span>
+    <span><span class="swatchLine" style="border-color:var(--ub); border-top-style:dashed;"></span>Unlevered Beta (β_U)</span>
+    <span><span class="swatchLine" style="border-color:var(--current); border-top-width:0;">●</span>Current Status</span>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="row">
+    <label for="equity">株式時価総額 E（億円）</label>
+    <input type="range" id="equity" min="100" max="2000" step="10" value="800">
+    <span class="val" id="equityVal">800</span>
+  </div>
+  <div class="row">
+    <label for="debt">有利子負債 D（億円）</label>
+    <input type="range" id="debt" min="0" max="2000" step="10" value="200">
+    <span class="val" id="debtVal">200</span>
+  </div>
+  <div class="row">
+    <label for="beta">観測ベータ (β_L)</label>
+    <input type="range" id="beta" min="0.3" max="3.0" step="0.05" value="1.25">
+    <span class="val" id="betaVal">1.25</span>
+  </div>
+  <div class="hud">
+    <div>現在の負債比率 (D/E): <b id="hudDE">-</b></div>
+    <div>事業リスク (β_U): <b id="hudBu">-</b></div>
+    <div>財務リスク (β_L − β_U): <b id="hudDiff">-</b></div>
+  </div>
+</div>
+
+<div class="resultBox" id="resultText"></div>
+
+<script>
+const M = {l:60, r:30, t:20, b:44};
+const svgW = 700, svgH = 400;
+const plotW = svgW - M.l - M.r, plotH = svgH - M.t - M.b;
+const xMax = 2.0; // D/Eシナリオのレンジ (0〜2.0、元コードと同じ)
+
+const svg = document.getElementById('chart');
+const ns = 'http://www.w3.org/2000/svg';
+
+function el(tag, attrs){
+  const e = document.createElementNS(ns, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+let sx, sy, yMax;
+
+function computeYMax(observed_beta, unlevered_beta){
+  // 現在のβLとxMaxでのβL予測値のうち大きい方に少し余裕を持たせる
+  const betaAtXmax = unlevered_beta * (1 + xMax);
+  return Math.max(observed_beta, betaAtXmax, unlevered_beta) * 1.25;
+}
+
+function drawAxes(){
+  svg.innerHTML = '';
+  for (let v=0; v<=xMax+0.001; v+=0.5){
+    svg.appendChild(el('line', {x1:sx(v), x2:sx(v), y1:sy(0), y2:sy(yMax), stroke:'var(--grid)'}));
+    const t = el('text', {x:sx(v), y:sy(0)+16, 'font-size':10, 'text-anchor':'middle', fill:'var(--ink)'});
+    t.textContent = v.toFixed(1);
+    svg.appendChild(t);
+  }
+  const yStep = yMax > 6 ? 1 : 0.5;
+  for (let v=0; v<=yMax+0.001; v+=yStep){
+    svg.appendChild(el('line', {x1:sx(0), x2:sx(xMax), y1:sy(v), y2:sy(v), stroke:'var(--grid)'}));
+    const t = el('text', {x:sx(0)-8, y:sy(v)+3, 'font-size':10, 'text-anchor':'end', fill:'var(--ink)'});
+    t.textContent = v.toFixed(1);
+    svg.appendChild(t);
+  }
+  svg.appendChild(el('line', {x1:sx(0), x2:sx(xMax), y1:sy(0), y2:sy(0), stroke:'var(--ink)', 'stroke-opacity':0.4}));
+  svg.appendChild(el('line', {x1:sx(0), x2:sx(0), y1:sy(0), y2:sy(yMax), stroke:'var(--ink)', 'stroke-opacity':0.4}));
+
+  const xLabel = el('text', {x:sx(xMax), y:sy(0)+36, 'font-size':12, 'text-anchor':'end', fill:'var(--ink)'});
+  xLabel.textContent = 'Debt-to-Equity Ratio (D/E) →';
+  svg.appendChild(xLabel);
+
+  const yLabel = el('text', {x:-(sy(0)-16), y:16, 'font-size':12, transform:'rotate(-90)', fill:'var(--ink)'});
+  yLabel.textContent = 'Beta ↑';
+  svg.appendChild(yLabel);
+}
+
+function render(){
+  const equity = parseFloat(document.getElementById('equity').value);
+  const debt = parseFloat(document.getElementById('debt').value);
+  const observed_beta = parseFloat(document.getElementById('beta').value);
+  document.getElementById('equityVal').textContent = equity;
+  document.getElementById('debtVal').textContent = debt;
+  document.getElementById('betaVal').textContent = observed_beta.toFixed(2);
+
+  // ---- Hamada公式(税金なし) ----
+  const current_de_ratio = debt / equity;
+  const unlevered_beta = observed_beta / (1 + current_de_ratio);
+
+  yMax = computeYMax(observed_beta, unlevered_beta);
+  sx = (v) => M.l + (v/xMax) * plotW;
+  sy = (v) => M.t + plotH - (v/yMax) * plotH;
+
+  drawAxes();
+
+  // ---- 予測ベータのライン: β_L(D/E) = β_U * (1 + D/E), D/Eを0〜2.0で走査 ----
+  const scenarioPts = [];
+  for (let de = 0; de <= xMax + 1e-9; de += 0.1){
+    scenarioPts.push({de, beta: unlevered_beta * (1 + de)});
+  }
+  const linePath = el('path', {
+    fill:'none', stroke:'var(--line)', 'stroke-width':2.5,
+    d: scenarioPts.map((p,i) => (i===0?'M':'L')+sx(p.de).toFixed(2)+','+sy(p.beta).toFixed(2)).join('')
+  });
+  svg.appendChild(linePath);
+
+  // マーカー(元のPythonコードのmarker='o'を再現)
+  scenarioPts.forEach(p => {
+    svg.appendChild(el('circle', {cx:sx(p.de), cy:sy(p.beta), r:2.5, fill:'var(--line)'}));
+  });
+
+  // ---- 無負債ベータの水平破線 ----
+  svg.appendChild(el('line', {
+    x1:sx(0), x2:sx(xMax), y1:sy(unlevered_beta), y2:sy(unlevered_beta),
+    stroke:'var(--ub)', 'stroke-width':2, 'stroke-dasharray':'6,4'
+  }));
+  const ubLabel = el('text', {x:sx(0)+6, y:sy(unlevered_beta)-6, 'font-size':11, fill:'var(--ub)', 'font-weight':'bold'});
+  ubLabel.textContent = `Unlevered Beta (β_U=${unlevered_beta.toFixed(2)})`;
+  svg.appendChild(ubLabel);
+
+  // ---- 現在地点のプロット + 注釈(矢印) ----
+  const curX = sx(current_de_ratio), curY = sy(observed_beta);
+  svg.appendChild(el('circle', {cx:curX, cy:curY, r:6, fill:'var(--current)'}));
+
+  const annoX = sx(current_de_ratio + xMax*0.08);
+  const annoY = sy(observed_beta) + 24;
+  svg.appendChild(el('line', {
+    x1:annoX, y1:annoY, x2:curX+4, y2:curY+4,
+    stroke:'var(--current)', 'stroke-width':1.2, 'marker-end':'url(#arrowhead)'
+  }));
+  const defs = el('defs', {});
+  const marker = el('marker', {id:'arrowhead', markerWidth:8, markerHeight:8, refX:6, refY:3, orient:'auto'});
+  marker.appendChild(el('path', {d:'M0,0 L6,3 L0,6 Z', fill:'var(--current)'}));
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  const annoLabel = el('text', {x:annoX+4, y:annoY+4, 'font-size':11, fill:'var(--current)', 'font-weight':'bold'});
+  annoLabel.textContent = 'Current Status';
+  svg.appendChild(annoLabel);
+
+  // ---- HUD & 結果テキスト ----
+  document.getElementById('hudDE').textContent = current_de_ratio.toFixed(2);
+  document.getElementById('hudBu').textContent = unlevered_beta.toFixed(2);
+  document.getElementById('hudDiff').textContent = (observed_beta - unlevered_beta).toFixed(2);
+
+  document.getElementById('resultText').textContent =
+    `現在の負債比率 (D/E): ${current_de_ratio.toFixed(2)}\n` +
+    `事業リスク（無負債ベータ β_U）: ${unlevered_beta.toFixed(2)}\n` +
+    `財務リスク（β_L − β_U）: ${(observed_beta - unlevered_beta).toFixed(2)}`;
+  document.getElementById('resultText').style.whiteSpace = 'pre-line';
+}
+
+['equity','debt','beta'].forEach(id => document.getElementById(id).addEventListener('input', render));
+render();
+</script>
+</body>
+</html>
