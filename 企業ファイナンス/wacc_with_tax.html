@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>WACC and Leverage with Corporate Tax</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#33403a; --grid:#33403a1a;
+    --wacc:#046e00; --noTax:#888; --re:#1558d6;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:20px; background:var(--bg); color:var(--ink);
+    font-family:"Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  h3{margin:0; font-size:16px; font-weight:600; text-align:center;}
+  #viz{width:100%; max-width:760px;}
+  svg{width:100%; height:auto; display:block;}
+  .legend{display:flex; gap:18px; font-size:12px; flex-wrap:wrap; margin-top:6px; justify-content:center;}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .swatchLine{width:16px; height:0; border-top:3px solid;}
+  .controls{width:100%; max-width:760px; display:flex; flex-direction:column; gap:14px;}
+  .row{display:flex; align-items:center; gap:12px;}
+  .row label{flex:0 0 200px; font-size:13px;}
+  .row input[type=range]{flex:1;}
+  .row .val{flex:0 0 60px; text-align:right; font-size:13px; font-variant-numeric:tabular-nums;}
+  .hud{display:flex; gap:20px; font-size:13px; flex-wrap:wrap;}
+  .hud b{font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body>
+
+<h3>WACC and Leverage with Corporate Tax</h3>
+
+<div id="viz">
+  <svg id="chart" viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div class="legend">
+    <span><span class="swatchLine" style="border-color:var(--wacc); border-top-width:3px;"></span>WACC with Tax</span>
+    <span><span class="swatchLine" style="border-color:var(--noTax); border-top-style:dashed;"></span>WACC (No Tax)</span>
+    <span><span class="swatchLine" style="border-color:var(--re);"></span>Cost of Equity (r_e)</span>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="row">
+    <label for="rho">事業リスク (ρ)</label>
+    <input type="range" id="rho" min="0.05" max="0.20" step="0.01" value="0.12">
+    <span class="val" id="rhoVal">12%</span>
+  </div>
+  <div class="row">
+    <label for="rd">負債コスト (r_d)</label>
+    <input type="range" id="rd" min="0.01" max="0.10" step="0.01" value="0.05">
+    <span class="val" id="rdVal">5%</span>
+  </div>
+  <div class="row">
+    <label for="tax">法人税率 (Tc)</label>
+    <input type="range" id="tax" min="0" max="0.5" step="0.05" value="0.30">
+    <span class="val" id="taxVal">30%</span>
+  </div>
+  <div class="hud">
+    <div>D/E=4 での WACC(税あり): <b id="hudWacc4">-</b></div>
+    <div>D/E=4 での r_e: <b id="hudRe4">-</b></div>
+  </div>
+</div>
+
+<script>
+const M = {l:60, r:20, t:20, b:44};
+const svgW = 700, svgH = 400;
+const plotW = svgW - M.l - M.r, plotH = svgH - M.t - M.b;
+const xMax = 4; // de_ratio_range: 0〜4 (元のnp.linspace(0,4,100)と同じ)
+
+const svg = document.getElementById('chart');
+const ns = 'http://www.w3.org/2000/svg';
+
+function el(tag, attrs){
+  const e = document.createElementNS(ns, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+let sx, sy, yMax;
+
+function drawAxes(){
+  svg.innerHTML = '';
+  for (let v=0; v<=xMax; v+=1){
+    svg.appendChild(el('line', {x1:sx(v), x2:sx(v), y1:sy(0), y2:sy(yMax), stroke:'var(--grid)'}));
+    const t = el('text', {x:sx(v), y:sy(0)+16, 'font-size':10, 'text-anchor':'middle', fill:'var(--ink)'});
+    t.textContent = v;
+    svg.appendChild(t);
+  }
+  const yStep = yMax > 30 ? 5 : (yMax > 15 ? 2 : 1);
+  for (let v=0; v<=yMax+0.001; v+=yStep){
+    svg.appendChild(el('line', {x1:sx(0), x2:sx(xMax), y1:sy(v), y2:sy(v), stroke:'var(--grid)'}));
+    const t = el('text', {x:sx(0)-8, y:sy(v)+3, 'font-size':10, 'text-anchor':'end', fill:'var(--ink)'});
+    t.textContent = Math.round(v);
+    svg.appendChild(t);
+  }
+  svg.appendChild(el('line', {x1:sx(0), x2:sx(xMax), y1:sy(0), y2:sy(0), stroke:'var(--ink)', 'stroke-opacity':0.4}));
+  svg.appendChild(el('line', {x1:sx(0), x2:sx(0), y1:sy(0), y2:sy(yMax), stroke:'var(--ink)', 'stroke-opacity':0.4}));
+
+  const xLabel = el('text', {x:sx(xMax), y:sy(0)+36, 'font-size':12, 'text-anchor':'end', fill:'var(--ink)'});
+  xLabel.textContent = 'Debt-to-Equity Ratio (D/E) →';
+  svg.appendChild(xLabel);
+
+  const yLabel = el('text', {x:-(sy(0)-16), y:16, 'font-size':12, transform:'rotate(-90)', fill:'var(--ink)'});
+  yLabel.textContent = 'Cost of Capital (%) ↑';
+  svg.appendChild(yLabel);
+}
+
+function pathFromPoints(pts){
+  return pts.map((p,i) => (i===0?'M':'L')+sx(p.x).toFixed(2)+','+sy(p.y).toFixed(2)).join('');
+}
+
+function render(){
+  const rho = parseFloat(document.getElementById('rho').value);
+  const r_d = parseFloat(document.getElementById('rd').value);
+  const tax_rate = parseFloat(document.getElementById('tax').value);
+  document.getElementById('rhoVal').textContent = (rho*100).toFixed(0) + '%';
+  document.getElementById('rdVal').textContent = (r_d*100).toFixed(0) + '%';
+  document.getElementById('taxVal').textContent = (tax_rate*100).toFixed(0) + '%';
+
+  // ---- de_ratio_range: 0〜4 を100分割 ----
+  const N = 100;
+  const rePts = [], waccPts = [], noTaxPts = [];
+  let maxRe = 0;
+
+  for (let i=0; i<=N; i++){
+    const de = xMax * i/N;
+
+    // 1. 税金ありの自己資本コスト r_e = rho + (1-Tc)*(rho-r_d)*(D/E)
+    const re = rho + (1 - tax_rate) * (rho - r_d) * de;
+
+    // 2. 税引後WACC = (E/V)*r_e + (D/V)*r_d*(1-Tc)
+    const dv = de / (1 + de);
+    const ev = 1 / (1 + de);
+    const wacc = ev * re + dv * r_d * (1 - tax_rate);
+
+    // 3. 比較用: 税金なしのWACC = rho (一定)
+    rePts.push({x: de, y: re*100});
+    waccPts.push({x: de, y: wacc*100});
+    noTaxPts.push({x: de, y: rho*100});
+
+    if (re*100 > maxRe) maxRe = re*100;
+  }
+
+  // plt.ylim(0, max(re_costs*100) + 5) を再現
+  yMax = maxRe + 5;
+  sx = (v) => M.l + (v/xMax) * plotW;
+  sy = (v) => M.t + plotH - (v/yMax) * plotH;
+
+  drawAxes();
+
+  // 税引後WACC(緑・太線)
+  svg.appendChild(el('path', {fill:'none', stroke:'var(--wacc)', 'stroke-width':3, d: pathFromPoints(waccPts)}));
+
+  // 税金なしのWACC(グレー・破線)
+  svg.appendChild(el('path', {fill:'none', stroke:'var(--noTax)', 'stroke-width':2, 'stroke-dasharray':'8,5', 'stroke-opacity':0.7, d: pathFromPoints(noTaxPts)}));
+
+  // 自己資本コスト r_e(青)
+  svg.appendChild(el('path', {fill:'none', stroke:'var(--re)', 'stroke-width':2.5, d: pathFromPoints(rePts)}));
+
+  // HUD: D/E=4での値
+  const waccAt4 = waccPts[waccPts.length-1].y;
+  const reAt4 = rePts[rePts.length-1].y;
+  document.getElementById('hudWacc4').textContent = waccAt4.toFixed(1) + '%';
+  document.getElementById('hudRe4').textContent = reAt4.toFixed(1) + '%';
+}
+
+['rho','rd','tax'].forEach(id => document.getElementById(id).addEventListener('input', render));
+render();
+</script>
+</body>
+</html>
