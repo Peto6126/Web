@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>The Trade-off Theory of Capital Structure</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#33403a; --grid:#33403a1a;
+    --vu:#888; --shield:#2ca02c; --vl:#1558d6; --distress:#c0151d;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:20px; background:var(--bg); color:var(--ink);
+    font-family:"Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  h3{margin:0; font-size:16px; font-weight:600; text-align:center;}
+  #viz{width:100%; max-width:760px;}
+  svg{width:100%; height:auto; display:block;}
+  .legend{display:flex; gap:16px; font-size:11px; flex-wrap:wrap; margin-top:8px; justify-content:center;}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .swatchLine{width:16px; height:0; border-top:3px solid;}
+  .swatchArea{width:14px; height:10px;}
+  .controls{width:100%; max-width:760px; display:flex; flex-direction:column; gap:14px;}
+  .row{display:flex; align-items:center; gap:12px;}
+  .row label{flex:0 0 170px; font-size:13px;}
+  .row input[type=range]{flex:1;}
+  .row .val{flex:0 0 60px; text-align:right; font-size:13px; font-variant-numeric:tabular-nums;}
+  .hud{display:flex; gap:24px; font-size:13px; flex-wrap:wrap;}
+  .hud b{font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body>
+
+<h3>The Trade-off Theory of Capital Structure</h3>
+
+<div id="viz">
+  <svg id="chart" viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div class="legend">
+    <span><span class="swatchLine" style="border-color:var(--vu); border-top-style:dashed;"></span>Unlevered Value (V_U)</span>
+    <span><span class="swatchLine" style="border-color:var(--shield); opacity:0.6;"></span>Value with Tax Shield (V_U + T_c·D)</span>
+    <span><span class="swatchLine" style="border-color:var(--vl);"></span>Total Firm Value (V_L)</span>
+    <span><span class="swatchArea" style="background:var(--distress); opacity:0.2;"></span>Financial Distress Costs</span>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="row">
+    <label for="vu">事業価値 (V_U)</label>
+    <input type="range" id="vu" min="50" max="150" step="10" value="100">
+    <span class="val" id="vuVal">100</span>
+  </div>
+  <div class="row">
+    <label for="tax">法人税率 (Tc)</label>
+    <input type="range" id="tax" min="0" max="0.5" step="0.05" value="0.30">
+    <span class="val" id="taxVal">30%</span>
+  </div>
+  <div class="row">
+    <label for="distress">窮境コスト強度</label>
+    <input type="range" id="distress" min="0.1" max="2.0" step="0.1" value="0.5">
+    <span class="val" id="distressVal">0.5</span>
+  </div>
+  <div class="hud">
+    <div>最適負債額: <b id="hudOptDebt">-</b></div>
+    <div>最大企業価値: <b id="hudMaxVal">-</b></div>
+  </div>
+</div>
+
+<script>
+const M = {l:60, r:20, t:20, b:44};
+const svgW = 700, svgH = 400;
+const plotW = svgW - M.l - M.r, plotH = svgH - M.t - M.b;
+const xMax = 200; // debt: 0〜200億円 (元コードと同じ)
+
+const svg = document.getElementById('chart');
+const ns = 'http://www.w3.org/2000/svg';
+function el(tag, attrs){
+  const e = document.createElementNS(ns, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+let sx, sy, yMax;
+
+function drawAxes(){
+  svg.innerHTML = '';
+  for (let v=0; v<=xMax; v+=25){
+    svg.appendChild(el('line', {x1:sx(v), x2:sx(v), y1:sy(0), y2:sy(yMax), stroke:'var(--grid)'}));
+    const t = el('text', {x:sx(v), y:sy(0)+16, 'font-size':10, 'text-anchor':'middle', fill:'var(--ink)'});
+    t.textContent = v;
+    svg.appendChild(t);
+  }
+  const yStep = Math.max(10, Math.round(yMax/8/10)*10);
+  for (let v=0; v<=yMax+0.001; v+=yStep){
+    svg.appendChild(el('line', {x1:sx(0), x2:sx(xMax), y1:sy(v), y2:sy(v), stroke:'var(--grid)'}));
+    const t = el('text', {x:sx(0)-8, y:sy(v)+3, 'font-size':10, 'text-anchor':'end', fill:'var(--ink)'});
+    t.textContent = Math.round(v);
+    svg.appendChild(t);
+  }
+  svg.appendChild(el('line', {x1:sx(0), x2:sx(xMax), y1:sy(0), y2:sy(0), stroke:'var(--ink)', 'stroke-opacity':0.4}));
+  svg.appendChild(el('line', {x1:sx(0), x2:sx(0), y1:sy(0), y2:sy(yMax), stroke:'var(--ink)', 'stroke-opacity':0.4}));
+
+  const xLabel = el('text', {x:sx(xMax), y:sy(0)+36, 'font-size':12, 'text-anchor':'end', fill:'var(--ink)'});
+  xLabel.textContent = 'Total Debt (D) →';
+  svg.appendChild(xLabel);
+
+  const yLabel = el('text', {x:-(sy(0)-16), y:16, 'font-size':12, transform:'rotate(-90)', fill:'var(--ink)'});
+  yLabel.textContent = 'Enterprise Value (V) ↑';
+  svg.appendChild(yLabel);
+}
+
+function pathFromPoints(pts){
+  return pts.map((p,i) => (i===0?'M':'L')+sx(p.x).toFixed(2)+','+sy(p.y).toFixed(2)).join('');
+}
+
+function render(){
+  const v_u = parseFloat(document.getElementById('vu').value);
+  const tax_rate = parseFloat(document.getElementById('tax').value);
+  const distress_intensity = parseFloat(document.getElementById('distress').value);
+  document.getElementById('vuVal').textContent = v_u;
+  document.getElementById('taxVal').textContent = (tax_rate*100).toFixed(0) + '%';
+  document.getElementById('distressVal').textContent = distress_intensity.toFixed(1);
+
+  const N = 100;
+  const vuPts = [], shieldPts = [], vlPts = [];
+  let opt = {debt:0, v:-Infinity};
+  let maxShield = 0;
+
+  for (let i=0; i<=N; i++){
+    const debt = xMax * i/N;
+    const tax_shield = tax_rate * debt;
+    const distress_cost = distress_intensity * Math.pow(debt, 2.5) / 1000;
+    const v_with_shield = v_u + tax_shield;
+    const v_l = v_u + tax_shield - distress_cost;
+
+    vuPts.push({x:debt, y:v_u});
+    shieldPts.push({x:debt, y:v_with_shield});
+    vlPts.push({x:debt, y:v_l});
+
+    if (v_l > opt.v) opt = {debt, v:v_l};
+    if (v_with_shield > maxShield) maxShield = v_with_shield;
+  }
+
+  // plt.ylim(0, max(v_u+tax_shield)+20) を再現
+  yMax = maxShield + 20;
+  sx = (v) => M.l + (v/xMax) * plotW;
+  sy = (v) => M.t + plotH - (v/yMax) * plotH;
+
+  drawAxes();
+
+  // Unlevered Value(灰色破線)
+  svg.appendChild(el('path', {fill:'none', stroke:'var(--vu)', 'stroke-width':2, 'stroke-dasharray':'8,5', d:pathFromPoints(vuPts)}));
+
+  // Value with Tax Shield(緑、半透明)
+  svg.appendChild(el('path', {fill:'none', stroke:'var(--shield)', 'stroke-width':2, 'stroke-opacity':0.55, d:pathFromPoints(shieldPts)}));
+
+  // Financial Distress Costs(赤い塗りつぶし: shieldラインとvlラインの間)
+  const fillPts = shieldPts.concat(vlPts.slice().reverse());
+  svg.appendChild(el('path', {
+    fill:'var(--distress)', 'fill-opacity':0.2, stroke:'none',
+    d: pathFromPoints(fillPts) + 'Z'
+  }));
+
+  // Total Firm Value(青、太線)
+  svg.appendChild(el('path', {fill:'none', stroke:'var(--vl)', 'stroke-width':3, d:pathFromPoints(vlPts)}));
+
+  // 最適地点
+  svg.appendChild(el('circle', {cx:sx(opt.debt), cy:sy(opt.v), r:7, fill:'var(--distress)', stroke:'black', 'stroke-width':1}));
+
+  const annoX = sx(Math.min(opt.debt + xMax*0.06, xMax*0.85));
+  const annoY = sy(opt.v) - 26;
+  svg.appendChild(el('line', {
+    x1:annoX, y1:annoY+18, x2:sx(opt.debt)+4, y2:sy(opt.v)-4,
+    stroke:'black', 'stroke-width':1.2
+  }));
+  const annoLabel1 = el('text', {x:annoX, y:annoY, 'font-size':11, 'font-weight':'bold', fill:'var(--ink)'});
+  annoLabel1.textContent = `Optimal Debt: ${opt.debt.toFixed(1)}`;
+  svg.appendChild(annoLabel1);
+  const annoLabel2 = el('text', {x:annoX, y:annoY+16, 'font-size':11, 'font-weight':'bold', fill:'var(--ink)'});
+  annoLabel2.textContent = `Max Value: ${opt.v.toFixed(1)}`;
+  svg.appendChild(annoLabel2);
+
+  document.getElementById('hudOptDebt').textContent = opt.debt.toFixed(1);
+  document.getElementById('hudMaxVal').textContent = opt.v.toFixed(1);
+}
+
+['vu','tax','distress'].forEach(id => document.getElementById(id).addEventListener('input', render));
+render();
+</script>
+</body>
+</html>
